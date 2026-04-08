@@ -15,4 +15,4 @@ RUN pip install openenv-core
 
 EXPOSE 8000
 
-CMD ["python", "-m", "uvicorn", "smart_waste_env.server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server.app:main", "--host", "0.0.0.0", "--port", "8000"]
