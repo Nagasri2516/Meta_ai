@@ -1,0 +1,20 @@
+spec_version: 1
+
+name: smart_waste_env
+description: RL environment for smart waste collection optimization
+
+type: space
+runtime: fastapi
+
+app: smart_waste_env.server.app:app
+port: 8000
+
+tasks:
+  - name: easy
+    description: Few bins, fixed positions
+  - name: medium
+    description: Random bins, moderate difficulty
+  - name: hard
+    description: Many bins, high difficulty
+
+entrypoint: inference.py
