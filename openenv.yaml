@@ -6,7 +6,7 @@ description: RL environment for smart waste collection optimization
 type: space
 runtime: fastapi
 
-app: smart_waste_env.server.app:app
+app: server.app:main
 port: 8000
 
 tasks:
