@@ -15,4 +15,4 @@ RUN pip install openenv-core
 
 EXPOSE 8000
 
-CMD ["uvicorn", "server.app:main", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server.app", "--host", "0.0.0.0", "--port", "8000"]
