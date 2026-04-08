@@ -1,10 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
-
-
-class SmartWasteAction(BaseModel):
-    action_type: str
-    direction: Optional[str] = None
+from typing import List
 
 
 class Bin(BaseModel):
@@ -17,5 +12,8 @@ class SmartWasteObservation(BaseModel):
     truck_position: List[int]
     bins: List[Bin]
     fuel: int
-    reward: float
-    done: bool
+
+
+class SmartWasteAction(BaseModel):
+    action_type: str
+    direction: str | None = None
