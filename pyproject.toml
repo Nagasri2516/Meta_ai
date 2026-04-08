@@ -20,7 +20,7 @@ requires-python = ">=3.10"
 
 # 🔥 IMPORTANT ADD THIS
 [project.scripts]
-server = "server.app:main"
+server = "server.app:start"
 
 [tool.setuptools.packages.find]
 where = ["."]
