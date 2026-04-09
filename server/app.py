@@ -59,14 +59,7 @@ async def health():
 
 @app.post("/reset")
 async def reset(task: str = "easy"):
-    """
-    Reset the environment with a specific task difficulty.
-    
-    Parameters:
-    - task: "easy", "medium", or "hard"
-    
-    Returns initial observation and state.
-    """
+    """Reset the environment"""
     global _env, _current_task
     
     valid_tasks = ["easy", "medium", "hard"]
@@ -79,10 +72,8 @@ async def reset(task: str = "easy"):
     _current_task = task
     logger.info(f"Resetting environment with task: {task}")
     
-    # Reset the environment
     observation, reward, done, info = _env.reset(task=task)
     
-    # Convert Pydantic model to dict for response
     return {
         "observation": observation.dict(),
         "reward": reward,
@@ -94,13 +85,7 @@ async def reset(task: str = "easy"):
 
 @app.post("/step")
 async def step(action: SmartWasteAction):
-    """
-    Take an action in the environment.
-    
-    Body: { "action_type": "MOVE", "direction": "RIGHT" }
-    
-    Returns observation, reward, done flag, and additional info.
-    """
+    """Take an action"""
     global _env
     
     if _env is None:
@@ -151,7 +136,16 @@ async def get_openapi():
     return app.openapi()
 
 
-if __name__ == "__main__":
+# ============ IMPORTANT: This is what OpenEnv requires ============
+def main():
+    """Main entry point for OpenEnv"""
     import uvicorn
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+
+# This is the variable OpenEnv looks for
+main_callable = main
+
+# Also expose app as main for compatibility
+main = app
