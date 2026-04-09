@@ -1,14 +1,23 @@
-class SmartWasteEnvironment:
+# smart_waste_env/environment.py
 
+class SmartWasteEnvironment:
     def __init__(self):
         self.truck_position = [0, 0]
         self.fuel = 50
         self.done = False
+        # Add tracking for grader metrics
+        self.total_reward = 0
+        self.steps_taken = 0
+        self.overflow_count = 0
 
     def reset(self, episode_id=None, seed=None):
         self.truck_position = [0, 0]
         self.fuel = 50
         self.done = False
+        # Reset tracking metrics
+        self.total_reward = 0
+        self.steps_taken = 0
+        self.overflow_count = 0
 
         self.bins = [
             {"pos": [2, 2], "fill": 0.5, "priority": 1},
@@ -40,6 +49,14 @@ class SmartWasteEnvironment:
             )
 
         reward = -1
+        self.total_reward += reward
+        self.steps_taken += 1
+
+        # Check for overflow (example logic - adjust based on your game rules)
+        for bin in self.bins:
+            if bin.get("fill", 0) > 1.0:  # If fill exceeds capacity
+                self.overflow_count += 1
+                # Handle overflow...
 
         if action.action_type == "MOVE":
             if action.direction == "RIGHT":
@@ -53,6 +70,10 @@ class SmartWasteEnvironment:
 
             self.fuel -= 1
 
+        # Check if episode should end
+        if self.fuel <= 0 or self.steps_taken >= 100:  # Max steps limit
+            self.done = True
+
         return (
             {
                 "truck_position": self.truck_position,
@@ -60,15 +81,10 @@ class SmartWasteEnvironment:
                 "fuel": self.fuel
             },
             reward,
-            False,
-            {}
+            self.done,
+            {
+                "total_reward": self.total_reward,
+                "steps": self.steps_taken,
+                "overflow_count": self.overflow_count
+            }  # Include metrics in the info dict
         )
-
-    def close(self):
-        pass
-
-    async def reset_async(self, episode_id=None, seed=None):
-        return self.reset(episode_id, seed)
-
-    async def step_async(self, action):
-        return self.step(action)

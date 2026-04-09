@@ -7,12 +7,17 @@ type: space
 runtime: fastapi
 port: 8000
 
+grader: smart_waste_env.grader.grade  # <-- ADD THIS LINE
+
 tasks:
   - name: easy
     description: Few bins, fixed positions
+    entrypoint: smart_waste_env.tasks.easy_task
   - name: medium
     description: Random bins, moderate difficulty
+    entrypoint: smart_waste_env.tasks.medium_task
   - name: hard
     description: Many bins, high difficulty
+    entrypoint: smart_waste_env.tasks.hard_task
 
 entrypoint: inference.py
