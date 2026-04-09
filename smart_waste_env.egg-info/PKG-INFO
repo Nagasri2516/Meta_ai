@@ -1,0 +1,11 @@
+Metadata-Version: 2.4
+Name: smart-waste-env
+Version: 0.1.0
+Summary: Smart Waste Management RL Environment using OpenEnv
+Author: Nagasri
+Requires-Python: >=3.10
+Requires-Dist: fastapi
+Requires-Dist: uvicorn
+Requires-Dist: pydantic
+Requires-Dist: requests
+Requires-Dist: openenv-core
