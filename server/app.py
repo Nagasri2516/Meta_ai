@@ -1,7 +1,11 @@
 # server/app.py
 import os
+import sys
 import logging
 from contextlib import asynccontextmanager
+
+# Add parent directory to path so smart_waste_env can be found
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -24,60 +28,23 @@ async def lifespan(app: FastAPI):
     yield
     logger.info("Smart Waste Environment shutting down.")
 
-app = FastAPI(
-    title="Smart Waste Management Environment",
-    description="RL environment for smart waste collection optimization",
-    version="1.0.0",
-    lifespan=lifespan,
-)
+app = FastAPI(lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-@app.get("/")
-async def root():
-    return RedirectResponse(url="/docs")
-
 @app.get("/health")
 async def health():
-    return {"status": "ok", "environment": "smart_waste_env"}
+    return {"status": "ok"}
 
 @app.post("/reset")
 async def reset(task: str = "easy"):
-    """Reset the environment with a specific task"""
     global _env
-    
-    valid_tasks = ["easy", "medium", "hard"]
-    if task not in valid_tasks:
-        raise HTTPException(status_code=422, detail=f"Invalid task '{task}'. Choose from {valid_tasks}")
-    
-    logger.info(f"Resetting environment with task: {task}")
     observation, reward, done, info = _env.reset(task=task)
-    
-    return {
-        "observation": observation.model_dump(),
-        "reward": reward,
-        "done": done,
-        "info": info,
-        "task": task
-    }
-
-@app.post("/step")
-async def step(action: SmartWasteAction):
-    """Take an action in the environment"""
-    global _env
-    
-    if _env is None:
-        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
-    
-    logger.debug(f"Step called with action: {action.action_type} {action.direction}")
-    observation, reward, done, info = _env.step(action)
-    
     return {
         "observation": observation.model_dump(),
         "reward": reward,
@@ -85,25 +52,22 @@ async def step(action: SmartWasteAction):
         "info": info
     }
 
-@app.get("/state")
-async def get_state():
-    """Get current environment state"""
+@app.post("/step")
+async def step(action: SmartWasteAction):
     global _env
-    
     if _env is None:
-        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
-    
+        raise HTTPException(status_code=400, detail="Call /reset first")
+    observation, reward, done, info = _env.step(action)
     return {
-        "truck_position": _env.truck_position,
-        "fuel": _env.fuel,
-        "done": _env.done,
-        "steps_taken": getattr(_env, 'step_count', 0),
-        "total_reward": getattr(_env, 'total_reward', 0),
+        "observation": observation.model_dump(),
+        "reward": reward,
+        "done": done,
+        "info": info
     }
 
 def main():
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="info")
+    port = int(os.getenv("PORT", 7860))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
     main()

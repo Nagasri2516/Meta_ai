@@ -2,17 +2,22 @@ FROM python:3.10
 
 WORKDIR /app
 
-# Install dependencies
+# Copy requirements first (for better caching)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application
+# Copy the entire project
 COPY . .
 
-# Set unbuffered Python output
-ENV PYTHONUNBUFFERED=1
+# Install your package in development mode
+# This makes 'smart_waste_env' importable
+RUN pip install -e .
 
-# Expose the port Hugging Face expects
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV PORT=7860
+
+# Expose the port
 EXPOSE 7860
 
 # Run the server
