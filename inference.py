@@ -3,42 +3,49 @@ import os
 import requests
 import json
 import time
-from openai import OpenAI
 
 # ============================================
-# URL 1: HACKATHON'S LLM PROXY (DO NOT CHANGE)
+# HACKATHON'S LLM PROXY (Will be provided during validation)
 # ============================================
 LLM_API_BASE = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN") or os.getenv("OPENAI_API_KEY")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 # ============================================
-# URL 2: YOUR ENVIRONMENT SERVER (CHANGE THIS IF NEEDED)
+# YOUR ENVIRONMENT SERVER
 # ============================================
-# For local testing:
 ENV_URL = "http://127.0.0.1:8000"
-# For Hugging Face Space (uncomment when deploying):
-# ENV_URL = "https://nagasri16-hackathon.hf.space"
-
 TASK_NAME = os.getenv("TASK_NAME", "easy")
 BENCHMARK = os.getenv("BENCHMARK", "smart_waste_env")
 MAX_STEPS = 30
 
-# Initialize OpenAI client with HACKATHON'S proxy (NOT your environment)
-client = OpenAI(
-    base_url=LLM_API_BASE,  # This calls hackathon's LLM proxy
-    api_key=API_KEY,
-)
+# Flag to check if we have API key
+HAS_API_KEY = API_KEY is not None
+
+# Only initialize OpenAI client if we have API key
+if HAS_API_KEY:
+    from openai import OpenAI
+    client = OpenAI(
+        base_url=LLM_API_BASE,
+        api_key=API_KEY,
+    )
+else:
+    print("[WARNING] No API_KEY found. Using fallback rule-based actions.", flush=True)
+    client = None
 
 def get_llm_action(observation, step_num, task):
     """
     Use LLM to decide the next action.
-    This calls the HACKATHON'S LLM PROXY, not your environment.
+    Falls back to rule-based if no API key.
     """
     
     truck_pos = observation.get("truck_position", [0, 0])
     fuel = observation.get("fuel", 50)
     bins = observation.get("bins", [])
+    
+    # If no client, use rule-based logic
+    if client is None:
+        return rule_based_action(truck_pos, bins, fuel)
     
     system_prompt = """You are an AI agent controlling a waste collection truck.
 Your goal is to collect waste from bins efficiently while conserving fuel.
@@ -61,7 +68,6 @@ Which direction should the truck move?
 Respond with ONLY: MOVE_UP, MOVE_DOWN, MOVE_LEFT, or MOVE_RIGHT"""
     
     try:
-        # This calls the HACKATHON'S LLM PROXY
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
@@ -92,7 +98,28 @@ Respond with ONLY: MOVE_UP, MOVE_DOWN, MOVE_LEFT, or MOVE_RIGHT"""
         
     except Exception as e:
         print(f"[DEBUG] LLM call failed: {e}", flush=True)
-        return "MOVE_RIGHT"
+        return rule_based_action(truck_pos, bins, fuel)
+
+def rule_based_action(truck_pos, bins, fuel):
+    """
+    Simple rule-based fallback when LLM is not available.
+    """
+    # Simple logic: move towards the nearest bin
+    if bins:
+        nearest_bin = min(bins, key=lambda b: abs(b["pos"][0] - truck_pos[0]) + abs(b["pos"][1] - truck_pos[1]))
+        target_x, target_y = nearest_bin["pos"]
+        
+        if truck_pos[0] < target_x:
+            return "MOVE_RIGHT"
+        elif truck_pos[0] > target_x:
+            return "MOVE_LEFT"
+        elif truck_pos[1] < target_y:
+            return "MOVE_UP"
+        elif truck_pos[1] > target_y:
+            return "MOVE_DOWN"
+    
+    # Default to moving right
+    return "MOVE_RIGHT"
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -125,15 +152,19 @@ def main():
     success = False
     total_reward = 0
     
-    # Log start with required format
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    # Determine which model is being used
+    model_used = MODEL_NAME if HAS_API_KEY else "rule-based-fallback"
+    
+    log_start(task=TASK_NAME, env=BENCHMARK, model=model_used)
     
     try:
         # Wait for YOUR environment server to be ready
+        print("[INFO] Waiting for environment server...", flush=True)
         for i in range(30):
             try:
                 resp = requests.get(f"{ENV_URL}/health", timeout=2)
                 if resp.status_code == 200:
+                    print("[INFO] Environment server is ready!", flush=True)
                     break
             except:
                 pass
@@ -148,7 +179,7 @@ def main():
             observation = data.get("observation", {})
             
             for step_num in range(1, MAX_STEPS + 1):
-                # Get action from LLM (calls hackathon's proxy)
+                # Get action from LLM or rule-based
                 action = get_llm_action(observation, step_num, TASK_NAME)
                 
                 # Convert action for YOUR environment
@@ -174,13 +205,11 @@ def main():
                 rewards.append(reward)
                 steps_taken = step_num
                 
-                # Log step with required format
                 log_step(step=step_num, action=action, reward=reward, done=done, error=None)
                 
                 if done:
                     break
         
-        # Calculate final score
         score = calculate_score(total_reward, steps_taken)
         success = steps_taken > 0 and total_reward > -MAX_STEPS
         
@@ -190,7 +219,6 @@ def main():
         success = False
     
     finally:
-        # Log end with required format
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
