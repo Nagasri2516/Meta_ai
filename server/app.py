@@ -167,16 +167,16 @@ async def step(action: SmartWasteAction):
 # ============================================
 # This is the key - the server must run and block
 # ============================================
+# server/app.py - Use port 8080
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 7860))
+    # Try port 5000 (often free)
+    port = 5000
     print(f"Starting server on port {port}...")
-    print(f"Health check: http://0.0.0.0:{port}/health")
-    print(f"API docs: http://0.0.0.0:{port}/docs")
+    print(f"Health check: http://127.0.0.1:{port}/health")
     
-    # This MUST be the last line - it blocks and keeps the server running
     uvicorn.run(
         app, 
-        host="0.0.0.0", 
+        host="127.0.0.1",
         port=port,
         log_level="info"
     )
