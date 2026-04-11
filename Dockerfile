@@ -2,26 +2,15 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install only what's needed
+RUN pip install fastapi uvicorn pydantic
 
-# Copy application
-COPY . .
+# Copy the server file
+COPY server/app.py .
 
-# Install your package
-RUN pip install -e .
-
-# Set environment variables
+# Set environment
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
 
-# Health check for Hugging Face
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:7860/health')" || exit 1
-
-# Expose port
-EXPOSE 7860
-
 # Run the server
-CMD ["python", "-u", "server/app.py"]
+CMD ["python", "app.py"]
