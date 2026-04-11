@@ -7,26 +7,36 @@ from typing import Dict, Any
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
+import uvicorn
 
 from smart_waste_env.environment import SmartWasteEnvironment
 from smart_waste_env.models import SmartWasteAction, SmartWasteObservation
 
-logging.basicConfig(level=logging.INFO)
+# Configure logging to show everything
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 logger = logging.getLogger(__name__)
 
 # Global environment instance
 _env: SmartWasteEnvironment = None
 _current_task: str = None
 
+print("="*50)
+print("Starting Smart Waste Environment Server...")
+print("="*50)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan manager for startup/shutdown"""
     global _env
     logger.info("Smart Waste Environment starting up...")
+    print("🚀 Server is starting...")
     _env = SmartWasteEnvironment()
     yield
     logger.info("Smart Waste Environment shutting down.")
+    print("👋 Server is shutting down...")
 
 
 app = FastAPI(
@@ -61,6 +71,8 @@ async def health():
 async def reset(task: str = "easy"):
     """Reset the environment"""
     global _env, _current_task
+    
+    print(f"📡 Reset request received for task: {task}")
     
     valid_tasks = ["easy", "medium", "hard"]
     if task not in valid_tasks:
@@ -130,22 +142,24 @@ async def get_state():
     }
 
 
-@app.get("/openapi.json")
-async def get_openapi():
-    """Return OpenAPI schema"""
-    return app.openapi()
-
-
-# ============ IMPORTANT: This is what OpenEnv requires ============
-def main():
-    """Main entry point for OpenEnv"""
-    import uvicorn
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
-
-
-# This is the variable OpenEnv looks for
-main_callable = main
-
-# Also expose app as main for compatibility
+# OpenEnv requires this
 main = app
+
+if __name__ == "__main__":
+    print("\n" + "="*50)
+    print("🚛 Smart Waste Management Environment")
+    print("="*50)
+    print(f"📡 Server will start at: http://127.0.0.1:8000")
+    print(f"📚 API Docs: http://127.0.0.1:8000/docs")
+    print(f"❤️  Health Check: http://127.0.0.1:8000/health")
+    print("="*50)
+    print("\n✨ Server is starting...\n")
+    
+    port = int(os.getenv("PORT", 8000))
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=port,
+        log_level="info",
+        access_log=True
+    )

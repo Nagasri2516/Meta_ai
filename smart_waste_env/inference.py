@@ -2,88 +2,121 @@
 import requests
 import sys
 import time
+import os
 
-BASE_URL = "http://127.0.0.1:8000" # Or the URL of your running Space
+# Configuration
+BASE_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+TASKS = ["easy", "medium", "hard"]
 
-def run_episode(task_name, max_steps=20):
-    """Run one episode and print structured output for the validator."""
+def wait_for_server(timeout=30):
+    """Wait for server to be ready."""
+    print(f"[INFO] Waiting for server at {BASE_URL}...", flush=True)
+    for i in range(timeout):
+        try:
+            response = requests.get(f"{BASE_URL}/health", timeout=2)
+            if response.status_code == 200:
+                print(f"[INFO] Server is ready!", flush=True)
+                return True
+        except:
+            pass
+        time.sleep(1)
+        if (i + 1) % 5 == 0:
+            print(f"[INFO] Still waiting... ({i+1}/{timeout} seconds)", flush=True)
     
-    # --- 1. Print the START block ---
-    # Format: [START] task=NAME
+    print(f"[ERROR] Server did not become ready within {timeout} seconds", flush=True)
+    return False
+
+def grade_performance(total_reward, steps, max_steps=100):
+    """Calculate a score between 0 and 1."""
+    reward_score = min(total_reward / 100, 1) * 0.5
+    step_score = max(0, 1 - steps / max_steps) * 0.5
+    return round(reward_score + step_score, 2)
+
+def run_task(task_name):
+    """Run a single task and print structured output."""
+    
+    # ===== 1. PRINT START BLOCK =====
     print(f"[START] task={task_name}", flush=True)
-
-    # Reset the environment
+    
+    # Reset environment
     try:
-        response = requests.post(f"{BASE_URL}/reset", params={"task": task_name}, timeout=10)
+        response = requests.post(
+            f"{BASE_URL}/reset",
+            params={"task": task_name},
+            timeout=10
+        )
+        
         if response.status_code != 200:
-            # If reset fails, we can't continue.
-            print(f"[ERROR] Reset failed for task {task_name}: {response.text}", flush=True)
-            # You might still print an [END] block here, but the validator expects steps.
-            # For a hard failure, printing nothing might be best. Let's just return.
+            print(f"[ERROR] Reset failed: {response.status_code}", flush=True)
+            print(f"[END] task={task_name} score=0.0 steps=0", flush=True)
             return
+        
+        print(f"[INFO] Reset successful for task: {task_name}", flush=True)
+        
     except Exception as e:
-        print(f"[ERROR] Could not connect to server: {e}", flush=True)
+        print(f"[ERROR] Connection failed: {e}", flush=True)
+        print(f"[END] task={task_name} score=0.0 steps=0", flush=True)
         return
-
+    
+    # Run episode
     total_reward = 0
-    steps_taken = 0
+    steps = 0
     done = False
-
-    # Run the episode
+    max_steps = 50
+    
     for step_num in range(1, max_steps + 1):
-        if done:
-            break
-
         try:
             # Take a step (simple policy: always move right)
-            step_response = requests.post(f"{BASE_URL}/step", json={
-                "action_type": "MOVE",
-                "direction": "RIGHT"
-            }, timeout=10)
+            response = requests.post(
+                f"{BASE_URL}/step",
+                json={"action_type": "MOVE", "direction": "RIGHT"},
+                timeout=10
+            )
             
-            if step_response.status_code != 200:
-                print(f"[ERROR] Step {step_num} failed: {step_response.text}", flush=True)
+            if response.status_code != 200:
+                print(f"[ERROR] Step {step_num} failed", flush=True)
                 break
-
-            data = step_response.json()
-            reward = data.get('reward', 0)
+            
+            data = response.json()
+            reward = data.get("reward", 0)
             total_reward += reward
-            done = data.get('done', False)
-            steps_taken = step_num
-
-            # --- 2. Print the STEP block ---
-            # Format: [STEP] step=N reward=VALUE
-            # The validator likely just needs the reward.
+            done = data.get("done", False)
+            steps = step_num
+            
+            # ===== 2. PRINT STEP BLOCK =====
             print(f"[STEP] step={step_num} reward={reward}", flush=True)
-
+            
+            if done:
+                print(f"[INFO] Episode finished at step {step_num}", flush=True)
+                break
+                
         except Exception as e:
-            print(f"[ERROR] Exception during step {step_num}: {e}", flush=True)
+            print(f"[ERROR] Step {step_num} exception: {e}", flush=True)
             break
+    
+    # Calculate final score
+    score = grade_performance(total_reward, steps)
+    
+    # ===== 3. PRINT END BLOCK =====
+    print(f"[END] task={task_name} score={score} steps={steps}", flush=True)
 
-    # --- 3. Print the END block ---
-    # Format: [END] task=NAME score=SCORE steps=N
-    # You need to calculate a score. The grader.py file you have is perfect for this.
-    # Let's import your grading function.
-    try:
-        from smart_waste_env.grader import grade
-        # The grader expects total_reward, steps, overflow_count.
-        # We don't track overflow in this simple example, so pass 0.
-        final_score = grade(total_reward, steps_taken, 0)
-    except ImportError:
-        # Fallback if grader can't be imported (e.g., on the validation server)
-        # A simple score could be total_reward / max_steps, but using your grader is best.
-        final_score = total_reward / max_steps if max_steps > 0 else 0
-        final_score = max(0.0, min(1.0, final_score)) # Clamp between 0 and 1
-
-    print(f"[END] task={task_name} score={final_score} steps={steps_taken}", flush=True)
-
+def main():
+    """Main function to run all tasks."""
+    print("[INFO] Starting inference script", flush=True)
+    print(f"[INFO] API URL: {BASE_URL}", flush=True)
+    
+    # Wait for server to be ready
+    if not wait_for_server():
+        print("[ERROR] Cannot proceed without server", flush=True)
+        sys.exit(1)
+    
+    # Run all tasks
+    for task in TASKS:
+        print(f"[INFO] Running task: {task}", flush=True)
+        run_task(task)
+        time.sleep(0.5)  # Small delay between tasks
+    
+    print("[INFO] All tasks completed", flush=True)
 
 if __name__ == "__main__":
-    # The validator might run the script once and expect all tasks.
-    # Let's run all three difficulties.
-    # A small delay between tasks to avoid overwhelming the server.
-    for task in ["easy", "medium", "hard"]:
-        run_episode(task)
-        time.sleep(1) # Be gentle to the server
-
-    print("[INFO] Inference script finished.", flush=True)
+    main()
