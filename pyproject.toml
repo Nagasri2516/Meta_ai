@@ -5,12 +5,17 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "smart-waste-env"
 version = "0.1.0"
-description = "Smart Waste Management RL Environment"
-authors = [{ name = "Nagasri" }]
+description = "Smart Waste Management RL Environment using OpenEnv"
+authors = [
+    { name = "Nagasri" }
+]
 dependencies = [
     "fastapi",
     "uvicorn",
     "pydantic",
+    "requests",
+    "openai",
+    "openenv-core>=0.2.0"
 ]
 requires-python = ">=3.10"
 
@@ -19,4 +24,4 @@ server = "server.app:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["server*"]
+include = ["server*", "smart_waste_env*"]
