@@ -2,18 +2,19 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install dependencies
-RUN pip install fastapi uvicorn pydantic
+# Copy requirements first
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the server file
-COPY server/app.py .
+# Copy the rest
+COPY . .
 
-# Set environment
+# Install your package
+RUN pip install -e .
+
 ENV PYTHONUNBUFFERED=1
 ENV PORT=8000
 
-# Expose the port
 EXPOSE 8000
 
-# Run the server
-CMD ["python", "app.py"]
+CMD ["python", "server/app.py"]

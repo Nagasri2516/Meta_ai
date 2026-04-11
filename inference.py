@@ -1,18 +1,27 @@
-# inference.py - Updated to auto-detect server port
+# inference.py - With proper imports and error handling
 import os
-import requests
-import json
+import sys
 import time
-import urllib3
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+# Try to import required modules with error handling
+try:
+    import requests
+except ImportError:
+    print("[ERROR] requests module not installed. Run: pip install requests", flush=True)
+    sys.exit(1)
+
+try:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+except ImportError:
+    pass
 
 # ============================================
-# Auto-detect server port
+# Configuration with fallbacks
 # ============================================
 def find_server():
     """Try to find the running server on common ports"""
-    common_ports = [7860, 8000, 8080, 3000, 5000]
+    common_ports = [7860, 8000, 8080]
     for port in common_ports:
         try:
             response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
@@ -21,7 +30,7 @@ def find_server():
                 return f"http://127.0.0.1:{port}"
         except:
             pass
-    return "http://127.0.0.1:7860"  # Default for HF Spaces
+    return "http://127.0.0.1:7860"
 
 ENV_URL = os.getenv("ENV_URL", find_server())
 LLM_API_BASE = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
@@ -31,33 +40,44 @@ TASK_NAME = os.getenv("TASK_NAME", "easy")
 BENCHMARK = os.getenv("BENCHMARK", "smart_waste_env")
 MAX_STEPS = 30
 
+# Initialize OpenAI client only if API key exists
 HAS_API_KEY = API_KEY is not None
+client = None
 
 if HAS_API_KEY:
-    from openai import OpenAI
-    client = OpenAI(base_url=LLM_API_BASE, api_key=API_KEY)
+    try:
+        from openai import OpenAI
+        client = OpenAI(base_url=LLM_API_BASE, api_key=API_KEY)
+        print("[INFO] OpenAI client initialized for LLM calls", flush=True)
+    except ImportError:
+        print("[WARNING] openai module not installed", flush=True)
+        HAS_API_KEY = False
 else:
     print("[WARNING] No API_KEY found. Using fallback rule-based actions.", flush=True)
-    client = None
 
 def call_environment(action_type, **kwargs):
-    """Call environment endpoint"""
-    if action_type == "reset":
-        response = requests.post(
-            f"{ENV_URL}/reset", 
-            params={"task": kwargs.get("task", "easy")}, 
-            timeout=10
-        )
-    else:
-        response = requests.post(
-            f"{ENV_URL}/step", 
-            json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, 
-            timeout=10
-        )
-    
-    if response.status_code != 200:
-        raise Exception(f"API call failed: {response.status_code} - {response.text}")
-    return response.json()
+    """Call environment endpoint with error handling"""
+    try:
+        if action_type == "reset":
+            response = requests.post(
+                f"{ENV_URL}/reset", 
+                params={"task": kwargs.get("task", "easy")}, 
+                timeout=10
+            )
+        else:
+            response = requests.post(
+                f"{ENV_URL}/step", 
+                json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, 
+                timeout=10
+            )
+        
+        if response.status_code != 200:
+            raise Exception(f"API call failed: {response.status_code} - {response.text}")
+        return response.json()
+    except requests.exceptions.ConnectionError:
+        raise Exception(f"Cannot connect to {ENV_URL}. Is the server running?")
+    except Exception as e:
+        raise Exception(f"Environment call failed: {e}")
 
 def wait_for_server(timeout=30):
     """Wait for server to be ready"""
@@ -77,57 +97,10 @@ def wait_for_server(timeout=30):
     print(f"[ERROR] Server not ready after {timeout} seconds", flush=True)
     return False
 
-def get_llm_action(observation, step_num, task):
-    """Use LLM or rule-based to decide action"""
-    truck_pos = observation.get("truck_position", [0, 0])
-    fuel = observation.get("fuel", 50)
-    bins = observation.get("bins", [])
-    
-    if client is None:
-        return rule_based_action(truck_pos, bins, fuel)
-    
-    system_prompt = """You are an AI agent controlling a waste collection truck.
-Available actions: MOVE_UP, MOVE_DOWN, MOVE_LEFT, MOVE_RIGHT.
-Respond with ONLY the action name."""
-    
-    user_prompt = f"""Task: {task}
-Step: {step_num}
-Position: {truck_pos}
-Fuel: {fuel}
-Bins: {json.dumps(bins)}
-Which direction?"""
-    
-    try:
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
-            ],
-            temperature=0.7,
-            max_tokens=20,
-            timeout=10
-        )
-        action = completion.choices[0].message.content.strip().upper()
-        
-        valid_actions = ["MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT"]
-        if action not in valid_actions:
-            if "UP" in action:
-                action = "MOVE_UP"
-            elif "DOWN" in action:
-                action = "MOVE_DOWN"
-            elif "LEFT" in action:
-                action = "MOVE_LEFT"
-            else:
-                action = "MOVE_RIGHT"
-        return action
-    except Exception as e:
-        print(f"[DEBUG] LLM call failed: {e}", flush=True)
-        return rule_based_action(truck_pos, bins, fuel)
-
 def rule_based_action(truck_pos, bins, fuel):
     """Simple rule-based fallback"""
     if bins:
+        # Find nearest bin
         nearest_bin = min(bins, key=lambda b: abs(b["pos"][0] - truck_pos[0]) + abs(b["pos"][1] - truck_pos[1]))
         target_x, target_y = nearest_bin["pos"]
         
@@ -141,6 +114,51 @@ def rule_based_action(truck_pos, bins, fuel):
             return "MOVE_DOWN"
     return "MOVE_RIGHT"
 
+def get_llm_action(observation, step_num, task):
+    """Use LLM or rule-based to decide action"""
+    truck_pos = observation.get("truck_position", [0, 0])
+    fuel = observation.get("fuel", 50)
+    bins = observation.get("bins", [])
+    
+    # Use rule-based if no client
+    if client is None or not HAS_API_KEY:
+        return rule_based_action(truck_pos, bins, fuel)
+    
+    try:
+        system_prompt = """You are an AI agent controlling a waste collection truck.
+Available actions: MOVE_UP, MOVE_DOWN, MOVE_LEFT, MOVE_RIGHT.
+Respond with ONLY the action name."""
+        
+        user_prompt = f"""Task: {task}
+Step: {step_num}
+Position: {truck_pos}
+Fuel: {fuel}
+Bins: {len(bins)} bins
+Which direction?"""
+        
+        completion = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            temperature=0.7,
+            max_tokens=10,
+            timeout=10
+        )
+        
+        action = completion.choices[0].message.content.strip().upper()
+        
+        valid_actions = ["MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT"]
+        for v in valid_actions:
+            if v in action:
+                return v
+        return "MOVE_RIGHT"
+        
+    except Exception as e:
+        print(f"[DEBUG] LLM call failed: {e}", flush=True)
+        return rule_based_action(truck_pos, bins, fuel)
+
 def log_start(task, env, model):
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
@@ -150,7 +168,7 @@ def log_step(step, action, reward, done, error=None):
     print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
 def log_end(success, steps, score, rewards):
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else ""
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def main():
