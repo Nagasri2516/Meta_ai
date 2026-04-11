@@ -1,82 +1,78 @@
+# inference.py - Updated to match exact hackathon format
+import os
+import time
 import requests
-from smart_waste_env.grader import grade
 
-BASE_URL = "http://127.0.0.1:8000"
+# Required environment variables (set defaults)
+API_BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+MODEL_NAME = os.getenv("MODEL_NAME", "smart-waste-agent")
+TASK_NAME = os.getenv("TASK_NAME", "easy")
+BENCHMARK = os.getenv("BENCHMARK", "smart_waste_env")
+MAX_STEPS = 50
 
-def run_task(task_name):
-    """Run a specific task"""
-    print(f"\n{'='*50}")
-    print(f"Running {task_name.upper()} task")
-    print(f"{'='*50}")
+def main():
+    rewards = []
+    steps_taken = 0
+    success = False
     
-    # Reset with task parameter
-    response = requests.post(f"{BASE_URL}/reset", json={
-        "episode_id": task_name,
-        "seed": 42,
-        "task": task_name  # This tells the environment which task to use
-    })
+    # ===== START BLOCK =====
+    print(f"[START] task={TASK_NAME} env={BENCHMARK} model={MODEL_NAME}", flush=True)
     
-    if response.status_code != 200:
-        print(f"Failed to reset: {response.text}")
-        return None
-    
-    data = response.json()
-    print(f"Reset response: {data}")
-    
-    total_reward = 0
-    steps = 0
-    overflow_count = 0
-    done = False
-    
-    # Run up to 100 steps
-    while not done and steps < 100:
-        response = requests.post(f"{BASE_URL}/step", json={
-            "action": {
-                "action_type": "MOVE",
-                "direction": "RIGHT"
-            }
-        })
-        
+    try:
+        # Reset environment
+        response = requests.post(f"{API_BASE_URL}/reset", params={"task": TASK_NAME}, timeout=10)
         if response.status_code != 200:
-            print(f"Step failed: {response.text}")
-            break
+            print(f"[STEP] step=0 action=null reward=0.00 done=true error=reset_failed", flush=True)
+        else:
+            total_reward = 0.0
+            
+            for step_num in range(1, MAX_STEPS + 1):
+                # Take action
+                action = "MOVE_RIGHT"
+                
+                response = requests.post(
+                    f"{API_BASE_URL}/step",
+                    json={"action_type": "MOVE", "direction": "RIGHT"},
+                    timeout=10
+                )
+                
+                if response.status_code != 200:
+                    print(f"[STEP] step={step_num} action={action} reward=0.00 done=false error=api_failed", flush=True)
+                    break
+                
+                data = response.json()
+                reward = data.get("reward", 0.0)
+                done = data.get("done", False)
+                total_reward += reward
+                rewards.append(reward)
+                steps_taken = step_num
+                
+                # ===== STEP BLOCK =====
+                error_val = "null"
+                done_val = "true" if done else "false"
+                print(f"[STEP] step={step_num} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+                
+                if done:
+                    break
         
-        data = response.json()
-        steps += 1
-        reward = data.get("reward", 0)
-        total_reward += reward
-        done = data.get("done", False)
+        # Calculate score (normalized between 0 and 1)
+        # Simple scoring: (50 - steps_taken) / 50 * 0.5 + (total_reward + 50) / 100 * 0.5
+        step_score = max(0, (50 - steps_taken) / 50) * 0.5
+        reward_score = max(0, min(1, (total_reward + 50) / 100)) * 0.5 if steps_taken > 0 else 0
+        score = step_score + reward_score
+        score = max(0.0, min(1.0, score))
         
-        # Get overflow count from info
-        info = data.get("info", {})
-        overflow_count = info.get("overflow_count", overflow_count)
+        success = steps_taken > 0
         
-        print(f"Step {steps}: reward={reward}, total={total_reward:.2f}, done={done}")
+    except Exception as e:
+        print(f"[STEP] step=0 action=null reward=0.00 done=true error={str(e)}", flush=True)
+        score = 0.0
+        success = False
     
-    # Calculate grade
-    score = grade(total_reward, steps, overflow_count)
-    
-    print(f"\nResults for {task_name}:")
-    print(f"  Total Reward: {total_reward:.2f}")
-    print(f"  Steps Taken: {steps}")
-    print(f"  Overflow Count: {overflow_count}")
-    print(f"  Grade Score: {score}")
-    
-    return score
+    finally:
+        # ===== END BLOCK =====
+        rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else ""
+        print(f"[END] success={str(success).lower()} steps={steps_taken} score={score:.3f} rewards={rewards_str}", flush=True)
 
 if __name__ == "__main__":
-    # Test all three tasks
-    results = {}
-    for task in ["easy", "medium", "hard"]:
-        score = run_task(task)
-        if score is not None:
-            results[task] = score
-    
-    # Print final results
-    print(f"\n{'='*50}")
-    print("FINAL RESULTS")
-    print(f"{'='*50}")
-    for task, score in results.items():
-        print(f"{task.upper()}: {score}")
-    
-    print(f"\nOverall Average: {sum(results.values())/len(results):.2f}")
+    main()
