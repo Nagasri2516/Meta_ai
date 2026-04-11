@@ -2,7 +2,7 @@ FROM python:3.10-slim
 
 WORKDIR /app
 
-# Install only what's needed
+# Install dependencies
 RUN pip install fastapi uvicorn pydantic
 
 # Copy the server file
@@ -12,5 +12,5 @@ COPY server/app.py .
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
 
-# Run the server
+# Run the server (this MUST block)
 CMD ["python", "app.py"]

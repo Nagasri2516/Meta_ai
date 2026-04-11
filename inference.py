@@ -1,4 +1,4 @@
-# inference.py
+# inference.py - Updated to auto-detect server port
 import os
 import requests
 import json
@@ -8,12 +8,25 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================
-# CONFIGURATION
+# Auto-detect server port
 # ============================================
+def find_server():
+    """Try to find the running server on common ports"""
+    common_ports = [7860, 8000, 8080, 3000, 5000]
+    for port in common_ports:
+        try:
+            response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
+            if response.status_code == 200:
+                print(f"[INFO] Found server on port {port}", flush=True)
+                return f"http://127.0.0.1:{port}"
+        except:
+            pass
+    return "http://127.0.0.1:7860"  # Default for HF Spaces
+
+ENV_URL = os.getenv("ENV_URL", find_server())
 LLM_API_BASE = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_URL = os.getenv("ENV_URL", "http://127.0.0.1:8000")
 TASK_NAME = os.getenv("TASK_NAME", "easy")
 BENCHMARK = os.getenv("BENCHMARK", "smart_waste_env")
 MAX_STEPS = 30
@@ -27,11 +40,8 @@ else:
     print("[WARNING] No API_KEY found. Using fallback rule-based actions.", flush=True)
     client = None
 
-# ============================================
-# FIXED: Simplified call_environment (no root endpoint)
-# ============================================
 def call_environment(action_type, **kwargs):
-    """Call environment endpoint - directly use correct endpoints"""
+    """Call environment endpoint"""
     if action_type == "reset":
         response = requests.post(
             f"{ENV_URL}/reset", 

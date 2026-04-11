@@ -5,7 +5,6 @@ from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
 import os
-import random
 
 # ============================================
 # Define models directly in this file
@@ -165,6 +164,19 @@ async def step(action: SmartWasteAction):
         "info": info
     }
 
-# For HF Spaces - direct execution
-port = int(os.getenv("PORT", 7860))
-print(f"Starting server on port {port}...")
+# ============================================
+# This is the key - the server must run and block
+# ============================================
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 7860))
+    print(f"Starting server on port {port}...")
+    print(f"Health check: http://0.0.0.0:{port}/health")
+    print(f"API docs: http://0.0.0.0:{port}/docs")
+    
+    # This MUST be the last line - it blocks and keeps the server running
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=port,
+        log_level="info"
+    )
