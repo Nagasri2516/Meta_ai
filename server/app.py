@@ -1,10 +1,30 @@
-# server/app.py - Complete working version for Hugging Face Space
-import os
+# server/app.py - Updated root endpoint
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import RedirectResponse  # Add this import
 from pydantic import BaseModel
 from typing import List, Optional
+import os
 import uvicorn
+
+# ... (rest of your models and environment class remain the same)
+
+app = FastAPI(title="Smart Waste Management Environment")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Change this endpoint to redirect to docs
+@app.get("/")
+async def root():
+    """Redirect to interactive API documentation"""
+    return RedirectResponse(url="/docs")
+
+# ... (rest of your endpoints remain the same)
 
 # ============================================
 # Models
