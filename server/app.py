@@ -4,7 +4,7 @@ import sys
 import logging
 from contextlib import asynccontextmanager
 
-# Add parent directory to path so smart_waste_env can be found
+# Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from fastapi import FastAPI, HTTPException
@@ -66,8 +66,20 @@ async def step(action: SmartWasteAction):
     }
 
 def main():
+    # Hugging Face Spaces expects port 7860
     port = int(os.getenv("PORT", 7860))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    # Use 0.0.0.0 to accept all connections
+    host = "0.0.0.0"
+    
+    logger.info(f"Starting server on {host}:{port}")
+    
+    uvicorn.run(
+        app,
+        host=host,
+        port=port,
+        log_level="info",
+        access_log=True
+    )
 
 if __name__ == "__main__":
     main()

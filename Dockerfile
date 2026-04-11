@@ -1,24 +1,27 @@
-FROM python:3.10
+FROM python:3.10-slim
 
 WORKDIR /app
 
-# Copy requirements first (for better caching)
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the entire project
+# Copy application
 COPY . .
 
-# Install your package in development mode
-# This makes 'smart_waste_env' importable
+# Install your package
 RUN pip install -e .
 
 # Set environment variables
 ENV PYTHONUNBUFFERED=1
 ENV PORT=7860
 
-# Expose the port
+# Health check for Hugging Face
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:7860/health')" || exit 1
+
+# Expose port
 EXPOSE 7860
 
 # Run the server
-CMD ["python", "server/app.py"]
+CMD ["python", "-u", "server/app.py"]
