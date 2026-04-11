@@ -12,31 +12,28 @@ import uvicorn
 from smart_waste_env.environment import SmartWasteEnvironment
 from smart_waste_env.models import SmartWasteAction, SmartWasteObservation
 
-# Configure logging to show everything
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Global environment instance
 _env: SmartWasteEnvironment = None
 _current_task: str = None
 
-print("="*50)
-print("Starting Smart Waste Environment Server...")
-print("="*50)
+print("\n" + "="*60)
+print("🚛 SMART WASTE MANAGEMENT ENVIRONMENT")
+print("="*60)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan manager for startup/shutdown"""
     global _env
     logger.info("Smart Waste Environment starting up...")
-    print("🚀 Server is starting...")
     _env = SmartWasteEnvironment()
+    print("✅ Environment loaded successfully!")
     yield
     logger.info("Smart Waste Environment shutting down.")
-    print("👋 Server is shutting down...")
+    print("👋 Server shutting down...")
 
 
 app = FastAPI(
@@ -72,7 +69,7 @@ async def reset(task: str = "easy"):
     """Reset the environment"""
     global _env, _current_task
     
-    print(f"📡 Reset request received for task: {task}")
+    print(f"📡 Reset request: task={task}")
     
     valid_tasks = ["easy", "medium", "hard"]
     if task not in valid_tasks:
@@ -82,8 +79,6 @@ async def reset(task: str = "easy"):
         )
     
     _current_task = task
-    logger.info(f"Resetting environment with task: {task}")
-    
     observation, reward, done, info = _env.reset(task=task)
     
     return {
@@ -106,18 +101,14 @@ async def step(action: SmartWasteAction):
             detail="Environment not initialized. Call /reset first."
         )
     
-    try:
-        observation, reward, done, info = _env.step(action)
-        
-        return {
-            "observation": observation.dict(),
-            "reward": reward,
-            "done": done,
-            "info": info
-        }
-    except Exception as e:
-        logger.exception("Error during step")
-        raise HTTPException(status_code=500, detail=str(e))
+    observation, reward, done, info = _env.step(action)
+    
+    return {
+        "observation": observation.dict(),
+        "reward": reward,
+        "done": done,
+        "info": info
+    }
 
 
 @app.get("/state")
@@ -142,24 +133,34 @@ async def get_state():
     }
 
 
-# OpenEnv requires this
-main = app
+# ============================================
+# IMPORTANT: OpenEnv requires these two things
+# ============================================
 
-if __name__ == "__main__":
-    print("\n" + "="*50)
-    print("🚛 Smart Waste Management Environment")
-    print("="*50)
-    print(f"📡 Server will start at: http://127.0.0.1:8000")
-    print(f"📚 API Docs: http://127.0.0.1:8000/docs")
-    print(f"❤️  Health Check: http://127.0.0.1:8000/health")
-    print("="*50)
-    print("\n✨ Server is starting...\n")
-    
+# 1. A main() function that starts the server
+def main():
+    """Main entry point for OpenEnv"""
     port = int(os.getenv("PORT", 8000))
+    host = "0.0.0.0"
+    
+    print(f"\n📡 Starting server on http://{host}:{port}")
+    print(f"📚 API Docs: http://localhost:{port}/docs")
+    print(f"❤️  Health: http://localhost:{port}/health")
+    print("\n✨ Server is running...\n")
+    
     uvicorn.run(
-        app, 
-        host="0.0.0.0", 
+        app,
+        host=host,
         port=port,
         log_level="info",
         access_log=True
     )
+
+
+# 2. The if __name__ == "__main__" block
+if __name__ == "__main__":
+    main()
+
+
+# 3. Also expose app as main for compatibility (OpenEnv looks for this too)
+main_app = app
