@@ -169,14 +169,12 @@ async def step(action: SmartWasteAction):
 # ============================================
 # server/app.py - Use port 8080
 if __name__ == "__main__":
-    # Try port 5000 (often free)
-    port = 5000
-    print(f"Starting server on port {port}...")
-    print(f"Health check: http://127.0.0.1:{port}/health")
-    
+    port = int(os.getenv("PORT", "7860"))
+    host = os.getenv("HOST", "0.0.0.0")
+    print(f"Starting server on {host}:{port}...")
     uvicorn.run(
-        app, 
-        host="127.0.0.1",
+        app,
+        host=host,
         port=port,
-        log_level="info"
+        log_level="info",
     )
