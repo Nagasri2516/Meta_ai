@@ -1,4 +1,4 @@
-# server/app.py - Complete with main() function and if __name__ block
+# server/app.py
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -188,15 +188,12 @@ async def get_state():
     }
 
 # ============================================
-# IMPORTANT: OpenEnv requires these TWO things
+# OpenEnv Requirements
 # ============================================
-
-# 1. A main() function
 def main():
     """Main entry point for OpenEnv"""
     port = int(os.getenv("PORT", 8000))
     uvicorn.run(app, host="0.0.0.0", port=port)
 
-# 2. The if __name__ == "__main__" block
 if __name__ == "__main__":
     main()
