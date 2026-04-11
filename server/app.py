@@ -167,9 +167,9 @@ async def step(action: SmartWasteAction):
 # ============================================
 # This is the key - the server must run and block
 # ============================================
-# server/app.py - Use port 8080
+# server/app.py - Use port 8000 by default
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "7860"))
+    port = int(os.getenv("PORT", "8000"))
     host = os.getenv("HOST", "0.0.0.0")
     print(f"Starting server on {host}:{port}...")
     uvicorn.run(

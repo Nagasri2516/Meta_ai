@@ -10,7 +10,7 @@ COPY server/app.py .
 
 # Set environment
 ENV PYTHONUNBUFFERED=1
-ENV PORT=7860
+ENV PORT=8000
 
 # Run the server (this MUST block)
 CMD ["python", "app.py"]
