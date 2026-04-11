@@ -5,24 +5,15 @@ import json
 import time
 import urllib3
 
-# Disable SSL warnings for local testing (optional)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # ============================================
-# HACKATHON'S LLM PROXY (injected during validation)
+# CONFIGURATION
 # ============================================
 LLM_API_BASE = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-
-# ============================================
-# YOUR ENVIRONMENT SERVER
-# ============================================
-# For local testing
 ENV_URL = os.getenv("ENV_URL", "http://127.0.0.1:8000")
-# For Hugging Face Space (uncomment when deploying to HF)
-# ENV_URL = os.getenv("ENV_URL", "https://Nagasri16-Hackathon.hf.space")
-
 TASK_NAME = os.getenv("TASK_NAME", "easy")
 BENCHMARK = os.getenv("BENCHMARK", "smart_waste_env")
 MAX_STEPS = 30
@@ -36,52 +27,48 @@ else:
     print("[WARNING] No API_KEY found. Using fallback rule-based actions.", flush=True)
     client = None
 
+# ============================================
+# FIXED: Simplified call_environment (no root endpoint)
+# ============================================
 def call_environment(action_type, **kwargs):
-    """Unified function to call your environment"""
-    payload = {"action_type": action_type, **kwargs}
+    """Call environment endpoint - directly use correct endpoints"""
+    if action_type == "reset":
+        response = requests.post(
+            f"{ENV_URL}/reset", 
+            params={"task": kwargs.get("task", "easy")}, 
+            timeout=10
+        )
+    else:
+        response = requests.post(
+            f"{ENV_URL}/step", 
+            json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, 
+            timeout=10
+        )
     
-    # Try root endpoint first
-    try:
-        response = requests.post(f"{ENV_URL}/", json=payload, timeout=30, verify=False)
-        if response.status_code == 200:
-            return response.json()
-    except Exception as e:
-        print(f"[DEBUG] Root endpoint failed: {e}", flush=True)
+    if response.status_code != 200:
+        raise Exception(f"API call failed: {response.status_code} - {response.text}")
+    return response.json()
+
+def wait_for_server(timeout=30):
+    """Wait for server to be ready"""
+    print(f"[INFO] Waiting for server at {ENV_URL}...", flush=True)
+    for i in range(timeout):
+        try:
+            response = requests.get(f"{ENV_URL}/health", timeout=2)
+            if response.status_code == 200:
+                print(f"[INFO] Server is ready!", flush=True)
+                return True
+        except:
+            pass
+        time.sleep(1)
+        if (i + 1) % 5 == 0:
+            print(f"[INFO] Still waiting... ({i+1}/{timeout} seconds)", flush=True)
     
-    # Fallback to specific endpoints
-    try:
-        if action_type == "reset":
-            response = requests.post(
-                f"{ENV_URL}/reset", 
-                params={"task": kwargs.get("task", "easy")}, 
-                timeout=30,
-                verify=False
-            )
-        else:
-            response = requests.post(
-                f"{ENV_URL}/step", 
-                json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, 
-                timeout=30,
-                verify=False
-            )
-        
-        if response.status_code != 200:
-            raise Exception(f"API call failed: {response.status_code} - {response.text}")
-        return response.json()
-    except requests.exceptions.ConnectionError:
-        # If HTTPS fails, try HTTP
-        http_url = ENV_URL.replace("https://", "http://")
-        if action_type == "reset":
-            response = requests.post(f"{http_url}/reset", params={"task": kwargs.get("task", "easy")}, timeout=30)
-        else:
-            response = requests.post(f"{http_url}/step", json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, timeout=30)
-        
-        if response.status_code != 200:
-            raise Exception(f"API call failed: {response.status_code} - {response.text}")
-        return response.json()
+    print(f"[ERROR] Server not ready after {timeout} seconds", flush=True)
+    return False
 
 def get_llm_action(observation, step_num, task):
-    """Use LLM to decide next action"""
+    """Use LLM or rule-based to decide action"""
     truck_pos = observation.get("truck_position", [0, 0])
     fuel = observation.get("fuel", 50)
     bins = observation.get("bins", [])
@@ -129,9 +116,8 @@ Which direction?"""
         return rule_based_action(truck_pos, bins, fuel)
 
 def rule_based_action(truck_pos, bins, fuel):
-    """Simple rule-based fallback when LLM is not available"""
+    """Simple rule-based fallback"""
     if bins:
-        # Find nearest bin
         nearest_bin = min(bins, key=lambda b: abs(b["pos"][0] - truck_pos[0]) + abs(b["pos"][1] - truck_pos[1]))
         target_x, target_y = nearest_bin["pos"]
         
@@ -143,8 +129,6 @@ def rule_based_action(truck_pos, bins, fuel):
             return "MOVE_UP"
         elif truck_pos[1] > target_y:
             return "MOVE_DOWN"
-    
-    # Default to moving right
     return "MOVE_RIGHT"
 
 def log_start(task, env, model):
@@ -160,32 +144,30 @@ def log_end(success, steps, score, rewards):
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
 
 def main():
-    # Initialize variables with default values
     rewards = []
     steps_taken = 0
     success = False
-    score = 0.0  # Initialize score to avoid UnboundLocalError
+    score = 0.0
     
     model_used = MODEL_NAME if HAS_API_KEY else "rule-based-fallback"
     log_start(task=TASK_NAME, env=BENCHMARK, model=model_used)
     
+    if not wait_for_server():
+        log_end(success=False, steps=0, score=0.0, rewards=[])
+        return
+    
     try:
-        # Wait for environment server
-        print(f"[INFO] Connecting to environment at {ENV_URL}...", flush=True)
-        
         # Reset environment
         data = call_environment("reset", task=TASK_NAME)
         observation = data.get("observation", {})
-        print(f"[INFO] Reset successful. Starting position: {observation.get('truck_position', [0,0])}", flush=True)
+        print(f"[INFO] Reset successful. Position: {observation.get('truck_position', [0,0])}", flush=True)
         
         total_reward = 0.0
         
         for step_num in range(1, MAX_STEPS + 1):
-            # Get action from LLM or rule-based
             action = get_llm_action(observation, step_num, TASK_NAME)
             direction = action.replace("MOVE_", "")
             
-            # Execute action
             data = call_environment("step", direction=direction)
             reward = data.get("reward", 0.0)
             done = data.get("done", False)
@@ -198,34 +180,21 @@ def main():
             log_step(step=step_num, action=action, reward=reward, done=done)
             
             if done:
-                print(f"[INFO] Episode finished at step {step_num}", flush=True)
                 break
         
-        # Calculate score (normalized between 0 and 1)
-        # Simple scoring: based on reward and steps
-        max_possible_reward = 0
-        min_possible_reward = -MAX_STEPS
-        
-        if total_reward >= 0:
-            reward_score = 1.0
-        else:
-            reward_score = max(0, min(1, (total_reward - min_possible_reward) / (max_possible_reward - min_possible_reward)))
-        
-        step_score = max(0, 1 - (steps_taken / MAX_STEPS))
-        score = (reward_score * 0.6) + (step_score * 0.4)
-        score = round(score, 3)
-        
-        success = steps_taken > 0
-        
-        print(f"[INFO] Episode complete. Steps: {steps_taken}, Total Reward: {total_reward:.2f}, Score: {score}", flush=True)
+        # Calculate score
+        if steps_taken > 0:
+            step_score = max(0, 1 - (steps_taken / MAX_STEPS))
+            reward_score = max(0, min(1, (total_reward + MAX_STEPS) / MAX_STEPS))
+            score = round((reward_score * 0.6) + (step_score * 0.4), 3)
+            success = True
         
     except Exception as e:
-        print(f"[ERROR] Exception in main: {e}", flush=True)
+        print(f"[ERROR] {e}", flush=True)
         score = 0.0
         success = False
     
     finally:
-        # Always log end (even on exception)
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
