@@ -12,14 +12,11 @@ grader: smart_waste_env.grader.grade
 tasks:
   - name: easy
     description: Few bins, fixed positions
-    entrypoint: smart_waste_env.tasks.easy_task
   
   - name: medium
     description: Random bins, moderate difficulty
-    entrypoint: smart_waste_env.tasks.medium_task
   
   - name: hard
     description: Many bins, high difficulty
-    entrypoint: smart_waste_env.tasks.hard_task
 
-entrypoint: server/app.py
+entrypoint: inference.py

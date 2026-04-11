@@ -2,24 +2,23 @@
 def grade(total_reward, steps, overflow_count):
     """
     Grade the agent's performance.
-    Returns a score strictly between 0 and 1.
+    Returns a score STRICTLY between 0 and 1.
     """
-    max_steps = 100
-    max_overflow = 10
+    # Normalize reward (typical range: -100 to 0)
+    reward_score = max(0, min(1, (total_reward + 100) / 100))
     
-    # Reward efficiency (max 0.5 points)
-    reward_score = min(total_reward / 100, 1) * 0.5
+    # Normalize steps (typical range: 0 to 100)
+    step_score = max(0, min(1, 1 - (steps / 100)))
     
-    # Overflow penalty (max 0.3 points)
-    overflow_score = max(0, 1 - overflow_count / max_overflow) * 0.3
+    # Normalize overflow (0 to 10)
+    overflow_score = max(0, min(1, 1 - (overflow_count / 10)))
     
-    # Step efficiency (max 0.2 points)
-    step_score = max(0, 1 - steps / max_steps) * 0.2
+    # Combined score
+    raw_score = (reward_score * 0.4) + (step_score * 0.3) + (overflow_score * 0.3)
     
-    raw_score = reward_score + overflow_score + step_score
-    
-    # Ensure score is strictly between 0 and 1
-    epsilon = 0.001
-    score = max(epsilon, min(1 - epsilon, raw_score))
-    
-    return round(score, 3)
+    # Ensure strictly between 0 and 1 (not including boundaries)
+    if raw_score <= 0.001:
+        return 0.001
+    if raw_score >= 0.999:
+        return 0.999
+    return round(raw_score, 3)

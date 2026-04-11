@@ -1,6 +1,6 @@
 # server/app.py
 import os
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -118,21 +118,37 @@ class SmartWasteEnvironment:
         
         return observation, reward, self.done, info
 
+    def close(self):
+        pass
+
 # ============================================
-# FastAPI App
+# Create FastAPI App
 # ============================================
 app = FastAPI(title="Smart Waste Management Environment")
 
+# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# ============================================
+# CORS Preflight Handler
+# ============================================
+@app.options("/{rest_of_path:path}")
+async def preflight_handler():
+    """Handle CORS preflight requests"""
+    return Response(status_code=200)
+
 # Global environment instance
 _env = SmartWasteEnvironment()
 
+# ============================================
+# API Endpoints
+# ============================================
 @app.get("/")
 async def root():
     """Redirect to API docs"""
@@ -145,11 +161,11 @@ async def health():
 
 @app.post("/reset")
 async def reset(task: str = "easy"):
-    """Reset the environment"""
+    """Reset the environment with a specific task"""
     global _env
     valid_tasks = ["easy", "medium", "hard"]
     if task not in valid_tasks:
-        raise HTTPException(status_code=422, detail=f"Invalid task '{task}'")
+        raise HTTPException(status_code=422, detail=f"Invalid task '{task}'. Choose from {valid_tasks}")
     
     _env = SmartWasteEnvironment()
     observation, reward, done, info = _env.reset(task=task)
@@ -164,7 +180,7 @@ async def reset(task: str = "easy"):
 
 @app.post("/step")
 async def step(action: SmartWasteAction):
-    """Take an action"""
+    """Take an action in the environment"""
     global _env
     observation, reward, done, info = _env.step(action)
     return {
@@ -176,7 +192,7 @@ async def step(action: SmartWasteAction):
 
 @app.get("/state")
 async def get_state():
-    """Get current state"""
+    """Get current environment state"""
     global _env
     return {
         "task": _env.current_task,
@@ -188,12 +204,19 @@ async def get_state():
     }
 
 # ============================================
-# OpenEnv Requirements
+# OpenEnv Requirements - main() function
 # ============================================
 def main():
-    """Main entry point for OpenEnv"""
+    """Main entry point for OpenEnv and Hugging Face Spaces"""
     port = int(os.getenv("PORT", 8000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    host = "0.0.0.0"
+    print(f"Starting Smart Waste Environment server on {host}:{port}")
+    print(f"Health check: http://localhost:{port}/health")
+    print(f"API docs: http://localhost:{port}/docs")
+    uvicorn.run(app, host=host, port=port, log_level="info")
 
+# ============================================
+# This is REQUIRED for OpenEnv validation
+# ============================================
 if __name__ == "__main__":
     main()

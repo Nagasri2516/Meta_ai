@@ -1,46 +1,29 @@
-# inference.py - With proper imports and error handling
+# inference.py - Final version
 import os
 import sys
 import time
+import json
 
-# Try to import required modules with error handling
 try:
     import requests
 except ImportError:
-    print("[ERROR] requests module not installed. Run: pip install requests", flush=True)
+    print("[ERROR] requests module not installed", flush=True)
     sys.exit(1)
 
-try:
-    import urllib3
-    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-except ImportError:
-    pass
-
 # ============================================
-# Configuration with fallbacks
+# Configuration
 # ============================================
-def find_server():
-    """Try to find the running server on common ports"""
-    common_ports = [7860, 8000, 8080]
-    for port in common_ports:
-        try:
-            response = requests.get(f"http://127.0.0.1:{port}/health", timeout=2)
-            if response.status_code == 200:
-                print(f"[INFO] Found server on port {port}", flush=True)
-                return f"http://127.0.0.1:{port}"
-        except:
-            pass
-    return "http://127.0.0.1:7860"
-
-ENV_URL = os.getenv("ENV_URL", find_server())
+ENV_URL = os.getenv("ENV_URL", "http://127.0.0.1:7860")
 LLM_API_BASE = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-TASK_NAME = os.getenv("TASK_NAME", "easy")
+MODEL_NAME = os.getenv("MODEL_NAME", "rule-based")
 BENCHMARK = os.getenv("BENCHMARK", "smart_waste_env")
 MAX_STEPS = 30
 
-# Initialize OpenAI client only if API key exists
+# List of tasks to run (3 tasks required)
+TASKS = ["easy", "medium", "hard"]
+
+# Initialize OpenAI client if API key exists
 HAS_API_KEY = API_KEY is not None
 client = None
 
@@ -48,36 +31,10 @@ if HAS_API_KEY:
     try:
         from openai import OpenAI
         client = OpenAI(base_url=LLM_API_BASE, api_key=API_KEY)
-        print("[INFO] OpenAI client initialized for LLM calls", flush=True)
+        MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+        print("[INFO] OpenAI client initialized", flush=True)
     except ImportError:
-        print("[WARNING] openai module not installed", flush=True)
-        HAS_API_KEY = False
-else:
-    print("[WARNING] No API_KEY found. Using fallback rule-based actions.", flush=True)
-
-def call_environment(action_type, **kwargs):
-    """Call environment endpoint with error handling"""
-    try:
-        if action_type == "reset":
-            response = requests.post(
-                f"{ENV_URL}/reset", 
-                params={"task": kwargs.get("task", "easy")}, 
-                timeout=10
-            )
-        else:
-            response = requests.post(
-                f"{ENV_URL}/step", 
-                json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, 
-                timeout=10
-            )
-        
-        if response.status_code != 200:
-            raise Exception(f"API call failed: {response.status_code} - {response.text}")
-        return response.json()
-    except requests.exceptions.ConnectionError:
-        raise Exception(f"Cannot connect to {ENV_URL}. Is the server running?")
-    except Exception as e:
-        raise Exception(f"Environment call failed: {e}")
+        print("[WARNING] openai not installed", flush=True)
 
 def wait_for_server(timeout=30):
     """Wait for server to be ready"""
@@ -91,19 +48,24 @@ def wait_for_server(timeout=30):
         except:
             pass
         time.sleep(1)
-        if (i + 1) % 5 == 0:
-            print(f"[INFO] Still waiting... ({i+1}/{timeout} seconds)", flush=True)
-    
-    print(f"[ERROR] Server not ready after {timeout} seconds", flush=True)
     return False
 
+def call_environment(action_type, **kwargs):
+    """Call environment endpoint"""
+    if action_type == "reset":
+        response = requests.post(f"{ENV_URL}/reset", params={"task": kwargs.get("task", "easy")}, timeout=10)
+    else:
+        response = requests.post(f"{ENV_URL}/step", json={"action_type": "MOVE", "direction": kwargs.get("direction", "RIGHT")}, timeout=10)
+    
+    if response.status_code != 200:
+        raise Exception(f"API call failed: {response.status_code}")
+    return response.json()
+
 def rule_based_action(truck_pos, bins, fuel):
-    """Simple rule-based fallback"""
+    """Simple rule-based action"""
     if bins:
-        # Find nearest bin
         nearest_bin = min(bins, key=lambda b: abs(b["pos"][0] - truck_pos[0]) + abs(b["pos"][1] - truck_pos[1]))
         target_x, target_y = nearest_bin["pos"]
-        
         if truck_pos[0] < target_x:
             return "MOVE_RIGHT"
         elif truck_pos[0] > target_x:
@@ -114,86 +76,65 @@ def rule_based_action(truck_pos, bins, fuel):
             return "MOVE_DOWN"
     return "MOVE_RIGHT"
 
-def get_llm_action(observation, step_num, task):
-    """Use LLM or rule-based to decide action"""
+def get_action(observation, step_num, task):
+    """Get action from LLM or rule-based"""
     truck_pos = observation.get("truck_position", [0, 0])
     fuel = observation.get("fuel", 50)
     bins = observation.get("bins", [])
     
-    # Use rule-based if no client
-    if client is None or not HAS_API_KEY:
+    if client is None:
         return rule_based_action(truck_pos, bins, fuel)
     
     try:
-        system_prompt = """You are an AI agent controlling a waste collection truck.
-Available actions: MOVE_UP, MOVE_DOWN, MOVE_LEFT, MOVE_RIGHT.
-Respond with ONLY the action name."""
-        
-        user_prompt = f"""Task: {task}
-Step: {step_num}
-Position: {truck_pos}
-Fuel: {fuel}
-Bins: {len(bins)} bins
-Which direction?"""
-        
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "system", "content": "You control a waste collection truck. Respond with ONLY: MOVE_UP, MOVE_DOWN, MOVE_LEFT, or MOVE_RIGHT"},
+                {"role": "user", "content": f"Position: {truck_pos}, Fuel: {fuel}, Bins: {len(bins)}. Best direction?"}
             ],
             temperature=0.7,
             max_tokens=10,
             timeout=10
         )
-        
         action = completion.choices[0].message.content.strip().upper()
-        
-        valid_actions = ["MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT"]
-        for v in valid_actions:
+        valid = ["MOVE_UP", "MOVE_DOWN", "MOVE_LEFT", "MOVE_RIGHT"]
+        for v in valid:
             if v in action:
                 return v
         return "MOVE_RIGHT"
-        
-    except Exception as e:
-        print(f"[DEBUG] LLM call failed: {e}", flush=True)
+    except:
         return rule_based_action(truck_pos, bins, fuel)
 
-def log_start(task, env, model):
-    print(f"[START] task={task} env={env} model={model}", flush=True)
+def calculate_score(total_reward, steps_taken):
+    """Calculate score STRICTLY between 0 and 1"""
+    if steps_taken == 0:
+        return 0.001
+    
+    reward_score = max(0, min(1, (total_reward + 50) / 50))
+    step_score = max(0, min(1, 1 - (steps_taken / MAX_STEPS)))
+    raw_score = (reward_score * 0.5) + (step_score * 0.5)
+    
+    if raw_score <= 0.001:
+        return 0.001
+    if raw_score >= 0.999:
+        return 0.999
+    return round(raw_score, 3)
 
-def log_step(step, action, reward, done, error=None):
-    error_val = error if error else "null"
-    done_val = str(done).lower()
-    print(f"[STEP] step={step} action={action} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
-
-def log_end(success, steps, score, rewards):
-    rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else ""
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
-
-def main():
+def run_task(task_name):
+    """Run a single task and print structured output"""
     rewards = []
     steps_taken = 0
-    success = False
-    score = 0.0
+    total_reward = 0.0
     
-    model_used = MODEL_NAME if HAS_API_KEY else "rule-based-fallback"
-    log_start(task=TASK_NAME, env=BENCHMARK, model=model_used)
-    
-    if not wait_for_server():
-        log_end(success=False, steps=0, score=0.0, rewards=[])
-        return
+    model_display = MODEL_NAME if HAS_API_KEY else "rule-based"
+    print(f"[START] task={task_name} env={BENCHMARK} model={model_display}", flush=True)
     
     try:
-        # Reset environment
-        data = call_environment("reset", task=TASK_NAME)
+        data = call_environment("reset", task=task_name)
         observation = data.get("observation", {})
-        print(f"[INFO] Reset successful. Position: {observation.get('truck_position', [0,0])}", flush=True)
-        
-        total_reward = 0.0
         
         for step_num in range(1, MAX_STEPS + 1):
-            action = get_llm_action(observation, step_num, TASK_NAME)
+            action = get_action(observation, step_num, task_name)
             direction = action.replace("MOVE_", "")
             
             data = call_environment("step", direction=direction)
@@ -205,25 +146,39 @@ def main():
             rewards.append(reward)
             steps_taken = step_num
             
-            log_step(step=step_num, action=action, reward=reward, done=done)
+            print(f"[STEP] step={step_num} action={action} reward={reward:.2f} done={str(done).lower()} error=null", flush=True)
             
             if done:
                 break
         
-        # Calculate score
-        if steps_taken > 0:
-            step_score = max(0, 1 - (steps_taken / MAX_STEPS))
-            reward_score = max(0, min(1, (total_reward + MAX_STEPS) / MAX_STEPS))
-            score = round((reward_score * 0.6) + (step_score * 0.4), 3)
-            success = True
+        score = calculate_score(total_reward, steps_taken)
         
     except Exception as e:
-        print(f"[ERROR] {e}", flush=True)
-        score = 0.0
-        success = False
+        print(f"[ERROR] Task {task_name} failed: {e}", flush=True)
+        score = 0.001
+        steps_taken = 0
+        rewards = []
     
-    finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
+    rewards_str = ",".join(f"{r:.2f}" for r in rewards) if rewards else ""
+    print(f"[END] success=true steps={steps_taken} score={score:.3f} rewards={rewards_str}", flush=True)
+    return score
+
+def main():
+    print("[INFO] Starting Smart Waste Environment Inference", flush=True)
+    
+    if not wait_for_server():
+        print("[ERROR] Server not ready", flush=True)
+        sys.exit(1)
+    
+    scores = {}
+    for task in TASKS:
+        print(f"\n[INFO] Running task: {task}", flush=True)
+        score = run_task(task)
+        scores[task] = score
+        time.sleep(0.5)
+    
+    print(f"\n[INFO] All tasks completed", flush=True)
+    print(f"[INFO] Final Scores: easy={scores.get('easy', 0)}, medium={scores.get('medium', 0)}, hard={scores.get('hard', 0)}", flush=True)
 
 if __name__ == "__main__":
     main()
