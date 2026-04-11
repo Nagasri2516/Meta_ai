@@ -2,15 +2,18 @@ FROM python:3.10
 
 WORKDIR /app
 
+# Install dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application
 COPY . .
 
-# Install your package in development mode
-RUN pip install -e .
+# Set unbuffered Python output
+ENV PYTHONUNBUFFERED=1
 
-EXPOSE 8000
+# Expose the port Hugging Face expects
+EXPOSE 7860
 
-# Update CMD to use the correct module path
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run the server
+CMD ["python", "server/app.py"]
