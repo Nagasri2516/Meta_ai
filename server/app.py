@@ -1,30 +1,11 @@
-# server/app.py - Updated root endpoint
+# server/app.py - Complete with main() function and if __name__ block
+import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import RedirectResponse  # Add this import
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import List, Optional
-import os
 import uvicorn
-
-# ... (rest of your models and environment class remain the same)
-
-app = FastAPI(title="Smart Waste Management Environment")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Change this endpoint to redirect to docs
-@app.get("/")
-async def root():
-    """Redirect to interactive API documentation"""
-    return RedirectResponse(url="/docs")
-
-# ... (rest of your endpoints remain the same)
 
 # ============================================
 # Models
@@ -138,7 +119,7 @@ class SmartWasteEnvironment:
         return observation, reward, self.done, info
 
 # ============================================
-# FastAPI App - NO REDIRECTS
+# FastAPI App
 # ============================================
 app = FastAPI(title="Smart Waste Management Environment")
 
@@ -152,24 +133,10 @@ app.add_middleware(
 # Global environment instance
 _env = SmartWasteEnvironment()
 
-# ============================================
-# API Endpoints - All return JSON directly
-# ============================================
-
 @app.get("/")
 async def root():
-    """Root endpoint - shows API info"""
-    return {
-        "name": "Smart Waste Management Environment",
-        "version": "1.0.0",
-        "status": "running",
-        "endpoints": {
-            "health": "/health",
-            "docs": "/docs",
-            "reset": "POST /reset?task=easy|medium|hard",
-            "step": "POST /step with body: {\"action_type\":\"MOVE\",\"direction\":\"RIGHT\"}"
-        }
-    }
+    """Redirect to API docs"""
+    return RedirectResponse(url="/docs")
 
 @app.get("/health")
 async def health():
@@ -178,12 +145,11 @@ async def health():
 
 @app.post("/reset")
 async def reset(task: str = "easy"):
-    """Reset the environment with a specific task"""
+    """Reset the environment"""
     global _env
-    
     valid_tasks = ["easy", "medium", "hard"]
     if task not in valid_tasks:
-        raise HTTPException(status_code=422, detail=f"Invalid task '{task}'. Choose from {valid_tasks}")
+        raise HTTPException(status_code=422, detail=f"Invalid task '{task}'")
     
     _env = SmartWasteEnvironment()
     observation, reward, done, info = _env.reset(task=task)
@@ -198,14 +164,9 @@ async def reset(task: str = "easy"):
 
 @app.post("/step")
 async def step(action: SmartWasteAction):
-    """Take an action in the environment"""
+    """Take an action"""
     global _env
-    
-    if _env is None:
-        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
-    
     observation, reward, done, info = _env.step(action)
-    
     return {
         "observation": observation.model_dump(),
         "reward": reward,
@@ -215,26 +176,27 @@ async def step(action: SmartWasteAction):
 
 @app.get("/state")
 async def get_state():
-    """Get current environment state"""
+    """Get current state"""
     global _env
-    
-    if _env is None:
-        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
-    
     return {
         "task": _env.current_task,
         "truck_position": _env.truck_position,
         "fuel": _env.fuel,
         "done": _env.done,
         "steps_taken": _env.step_count,
-        "total_reward": _env.total_reward,
-        "num_bins": len(_env.bins_data)
+        "total_reward": _env.total_reward
     }
 
 # ============================================
-# Run the server
+# IMPORTANT: OpenEnv requires these TWO things
 # ============================================
-if __name__ == "__main__":
+
+# 1. A main() function
+def main():
+    """Main entry point for OpenEnv"""
     port = int(os.getenv("PORT", 8000))
-    print(f"Starting server on port {port}...")
     uvicorn.run(app, host="0.0.0.0", port=port)
+
+# 2. The if __name__ == "__main__" block
+if __name__ == "__main__":
+    main()
