@@ -1,13 +1,13 @@
-# server/app.py - Standalone version for HF Spaces
-from fastapi import FastAPI
+# server/app.py - Complete working version for Hugging Face Space
+import os
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List, Optional
 import uvicorn
-import os
 
 # ============================================
-# Define models directly in this file
+# Models
 # ============================================
 class Bin(BaseModel):
     pos: List[int]
@@ -24,7 +24,7 @@ class SmartWasteAction(BaseModel):
     direction: Optional[str] = None
 
 # ============================================
-# Environment class directly in this file
+# Environment Class
 # ============================================
 class SmartWasteEnvironment:
     def __init__(self):
@@ -118,7 +118,7 @@ class SmartWasteEnvironment:
         return observation, reward, self.done, info
 
 # ============================================
-# Create FastAPI app
+# FastAPI App - NO REDIRECTS
 # ============================================
 app = FastAPI(title="Smart Waste Management Environment")
 
@@ -132,19 +132,42 @@ app.add_middleware(
 # Global environment instance
 _env = SmartWasteEnvironment()
 
+# ============================================
+# API Endpoints - All return JSON directly
+# ============================================
+
 @app.get("/")
 async def root():
-    return {"message": "Smart Waste Management Environment", "status": "running"}
+    """Root endpoint - shows API info"""
+    return {
+        "name": "Smart Waste Management Environment",
+        "version": "1.0.0",
+        "status": "running",
+        "endpoints": {
+            "health": "/health",
+            "docs": "/docs",
+            "reset": "POST /reset?task=easy|medium|hard",
+            "step": "POST /step with body: {\"action_type\":\"MOVE\",\"direction\":\"RIGHT\"}"
+        }
+    }
 
 @app.get("/health")
 async def health():
+    """Health check endpoint"""
     return {"status": "ok", "environment": "smart_waste_env"}
 
 @app.post("/reset")
 async def reset(task: str = "easy"):
+    """Reset the environment with a specific task"""
     global _env
+    
+    valid_tasks = ["easy", "medium", "hard"]
+    if task not in valid_tasks:
+        raise HTTPException(status_code=422, detail=f"Invalid task '{task}'. Choose from {valid_tasks}")
+    
     _env = SmartWasteEnvironment()
     observation, reward, done, info = _env.reset(task=task)
+    
     return {
         "observation": observation.model_dump(),
         "reward": reward,
@@ -155,8 +178,14 @@ async def reset(task: str = "easy"):
 
 @app.post("/step")
 async def step(action: SmartWasteAction):
+    """Take an action in the environment"""
     global _env
+    
+    if _env is None:
+        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
+    
     observation, reward, done, info = _env.step(action)
+    
     return {
         "observation": observation.model_dump(),
         "reward": reward,
@@ -164,17 +193,28 @@ async def step(action: SmartWasteAction):
         "info": info
     }
 
+@app.get("/state")
+async def get_state():
+    """Get current environment state"""
+    global _env
+    
+    if _env is None:
+        raise HTTPException(status_code=400, detail="Environment not initialized. Call /reset first.")
+    
+    return {
+        "task": _env.current_task,
+        "truck_position": _env.truck_position,
+        "fuel": _env.fuel,
+        "done": _env.done,
+        "steps_taken": _env.step_count,
+        "total_reward": _env.total_reward,
+        "num_bins": len(_env.bins_data)
+    }
+
 # ============================================
-# This is the key - the server must run and block
+# Run the server
 # ============================================
-# server/app.py - Use port 8000 by default
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", "8000"))
-    host = os.getenv("HOST", "0.0.0.0")
-    print(f"Starting server on {host}:{port}...")
-    uvicorn.run(
-        app,
-        host=host,
-        port=port,
-        log_level="info",
-    )
+    port = int(os.getenv("PORT", 8000))
+    print(f"Starting server on port {port}...")
+    uvicorn.run(app, host="0.0.0.0", port=port)
